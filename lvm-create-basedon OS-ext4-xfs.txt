@@ -1,0 +1,116 @@
+[root@stlucidbprd01 ~]# bash -n fscreate1.sh  --to check syntax 
+ bash -x fscreate1.sh to run script.
+
+[root@stlucidbprd01 ~]# cat fscreate1.sh
+#!/bin/bash
+
+#lvm creation  and add entry into fstab
+
+echo "===LVM Creation Script===="
+
+read -p "Enter disk name (e.g /dev/disk): " DISK
+read -p "Enter VG Name: " VG
+read -p "Enter LV Name: " LV
+read -p "Enter mount point name: " MountPath
+read -p "Enter mount size: " Size
+
+#validate the disk
+
+if [! -b "$DISK"]; then
+    echo "ERROR: disk $DISK nt found!"
+    exit 1
+fi
+
+#Creating mount point
+mkdir -p "$MountPath"
+
+
+echo "Creating Physical Volume(PV).."
+pvcreate "$DISK"
+
+echo "Creating Volume Group(VG).."
+vgcreate "$VG" "$DISK"
+
+echo "Creating logical volume(LV).."
+lvcreate -L "$Size" -n "$LV" "$VG"
+
+
+echo "Creating file system based on OS xfs/ext4.."
+#mkfs.xfs /dev/"$VG"/"$LV"
+
+OSVER=$(rpm -q --queryformat '%{RELEASE}' redhat-release | cut -d '.' -f1)
+
+if [ "$OSVER" -eq 6 ]; then
+    echo "Using ext4 filesystem (RHEL 6)"
+    mkfs.ext4 /dev/"$VG"/"$LV"
+else
+    echo "Using xfs filesystem (RHEL $OSVER)"
+    mkfs.xfs /dev/"$VG"/"$LV"
+fi
+
+echo "mounting and updating fstab entry.."
+#Divise mapper path
+DM_PATH="/dev/mapper/${VG}-${LV}"
+
+#Take backup and Add entry in fstab
+cp /etc/fstab /etc/fstab.bkp
+echo "$DM_PATH  $MountPath      xfs     defaults       0 0" >> /etc/fstab
+
+#mounting
+mount -a
+
+
+df -hT "$MountPath"
+cat /etc/fstab "$MountPath"
+
+
+[root@stlucidbprd01 ~]#
+
+==================================
+
+To move Tanium to appbin:
+
+
+#!/bin/bash
+#
+# Script: tanium_relocate.sh
+# Purpose: Move Tanium directory to /appbin, create symlink, restart service
+# OS: RHEL 6.x compatible
+#
+
+
+TANIUM_OLD="/opt/Tanium"
+TANIUM_NEW="/appbin/Tanium"
+
+if service TaniumClient status >/dev/null 2>&1; then
+    SERVICE="TaniumClient"
+elif service taniumclient status >/dev/null 2>&1; then
+    SERVICE="taniumclient"
+else
+    echo "ERROR: Tanium service not found on this server."
+    exit 1
+fi
+
+
+echo "Checking TaniumClient service status.then stop."
+service $SERVICE status 
+service $SERVICE stop 
+service $SERVICE status 
+
+
+echo "Moving $TANIUM_OLD to /appbin/ ..." 
+mv $TANIUM_OLD /appbin/ 
+ls -l /appbin/ 
+du -sch $TANIUM_NEW 
+
+
+echo "Creating symlink /opt/Tanium -> /appbin/Tanium ..." 
+ln -s $TANIUM_NEW /opt/ 
+ls -l /opt/Tanium
+
+
+echo "Starting TaniumClient service..."
+service $SERVICE start 
+service $SERVICE status 
+
+echo "==== Tanium relocation completed ===="
